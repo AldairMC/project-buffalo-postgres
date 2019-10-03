@@ -3,33 +3,50 @@ package main
 import (
 	"database/sql"
 	"fmt"
+	"math/rand"
 	"net/http"
+	"strconv"
 	"time"
 
-	guuid "github.com/google/uuid"
 	"github.com/labstack/echo"
 	_ "github.com/mattn/go-sqlite3"
 )
 
-func initDB(filepath string) *slq.DB {
+func initDB(filepath string) *sql.DB {
 	db, err := sql.Open("sqlite3", filepath)
 
-	// Here we check for any db errors then exit
 	if err != nil {
 		panic(err)
 	}
 
-	// If we don't get any errors but somehow still don't get a db connection
-	// we exit as well
 	if db == nil {
 		panic("db nil")
 	}
 	return db
 }
 
+func migrate(db *sql.DB) {
+	sql := `
+		CREATE TABLE IF NOT EXISTS posts(
+			id VARCHAR NOT NULL PRIMARY KEY,
+			title VARCHAR NOT NULL,
+			description VARCHAR NOT NULL,
+			author VARCHAR NOT NULL,
+			createAt DATETIME NOT NULL,
+			updatedAt DATETIME NULL
+		);
+	`
+
+	_, err := db.Exec(sql)
+
+	if err != nil {
+		panic(err)
+	}
+}
+
 //Post define model of player
 type Post struct {
-	ID          string `json:"id"`
+	ID          int    `json:"id"`
 	Title       string `json:"title"`
 	Description string `json:"description"`
 	Author      string `json:"author"`
@@ -42,9 +59,9 @@ type Posts []Post
 
 var posts Posts
 
-func generateID() string {
-	id := guuid.New()
-	return id.String()
+func generateID() int {
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	return r.Intn(10000)
 }
 
 func getPosts(c echo.Context) error {
@@ -52,7 +69,7 @@ func getPosts(c echo.Context) error {
 }
 
 func getPost(c echo.Context) error {
-	id := c.Param("id")
+	id, _ := strconv.Atoi(c.Param("id"))
 	for _, post := range posts {
 		if post.ID == id {
 			c.JSON(http.StatusOK, post)
@@ -61,12 +78,11 @@ func getPost(c echo.Context) error {
 	return c.JSON(http.StatusBadRequest, nil)
 }
 
-func putPlayer(c echo.Context) error {
-	id := c.Param("id")
-	for i, _ := range players {
-		if players[i].ID == id {
-			players[i].Online = true
-			c.JSON(http.StatusOK, players)
+func putPost(c echo.Context) error {
+	id, _ := strconv.Atoi(c.Param("id"))
+	for i, _ := range posts {
+		if posts[i].ID == id {
+			c.JSON(http.StatusOK, posts)
 		}
 	}
 	return c.JSON(http.StatusBadRequest, nil)
@@ -85,10 +101,10 @@ func postPost(c echo.Context) error {
 }
 
 func deletePost(c echo.Context) error {
-	id, _ := c.Param("id")
+	id, _ := strconv.Atoi(c.Param("id"))
 	for i, _ := range posts {
 		if posts[i].ID == id {
-			posts = append(posts[:id], posts[i+1]...)
+			posts = append(posts[:i], posts[i+1:]...)
 			return c.JSON(http.StatusOK, posts)
 		}
 	}
@@ -96,11 +112,14 @@ func deletePost(c echo.Context) error {
 }
 
 func main() {
+	db := initDB("storage.db")
+	migrate(db)
 	fmt.Println("Running....")
 	e := echo.New()
-	e.GET("/players", getPlayers)
-	e.POST("/players", postPlayer)
-	e.GET("/players/:id", getPlayer)
-	e.PUT("/players/:id", putPlayer)
+	e.GET("/posts", getPosts)
+	e.POST("/posts", postPost)
+	e.GET("/posts/:id", getPost)
+	e.PUT("/posts/:id", putPost)
+	e.DELETE("/posts/:id", deletePost)
 	e.Start(":8080")
 }
